@@ -13,7 +13,6 @@ if sly.is_development():
     load_dotenv("local.env")
 
 
-
 team_id = sly.env.team_id()
 workspace_id = sly.env.workspace_id()
 project_id = sly.env.project_id(raise_not_found=False)
@@ -79,16 +78,18 @@ def image_groups(
     for group_name, image_infos in image_groups.items():
         yield group_name, image_infos
 
+
 def merge_numpys(numpys: List[np.ndarray]) -> np.ndarray:
     """Merge list of numpy arrays into one numpy array.
     Order of the channels ins defined by the order of the input list.
-    
+
     :param numpys: List of numpy arrays to merge.
     :type numpys: List[np.ndarray]
     :return: Merged numpy array.
     :rtype: np.ndarray
     """
     return np.stack(numpys, axis=-1)
+
 
 def image_infos_by_channels(image_infos: List[sly.ImageInfo]) -> List[sly.ImageInfo]:
     channel_image_infos = {}
@@ -99,14 +100,17 @@ def image_infos_by_channels(image_infos: List[sly.ImageInfo]) -> List[sly.ImageI
         channel_image_infos[idx] = image_info
     return list(channel_image_infos.values())
 
-def get_needed_image(image_info: sly.ImageInfo, channel_postfix: str) -> Optional[sly.ImageInfo]:
+
+def get_needed_image(
+    image_info: sly.ImageInfo, channel_postfix: str
+) -> Optional[sly.ImageInfo]:
     """Get image info with the given postfix from the list of image infos.
-    
+
     :param image_info: Image info to search for the image with the given postfix.
     :type image_info: sly.ImageInfo
     :param channel_postfix: Postfix of the channel to search for.
     :type channel_postfix: str
-    
+
     :return: Image info with the given postfix.
     :rtype: Optional[sly.ImageInfo]
     """
@@ -116,9 +120,10 @@ def get_needed_image(image_info: sly.ImageInfo, channel_postfix: str) -> Optiona
             return image_info
     return None
 
+
 def merge_annotations(anns: List[sly.Annotation]) -> sly.Annotation:
     """Merge list of annotations into one annotation.
-    
+
     :param anns: List of annotations to merge.
     :type anns: List[sly.Annotation]
     :return: Merged annotation.
@@ -130,9 +135,11 @@ def merge_annotations(anns: List[sly.Annotation]) -> sly.Annotation:
     return merged_ann
 
 
-def get_annotations(dataset_id: int, image_infos: List[sly.ImageInfo], project_meta: sly.ProjectMeta) -> List[sly.Annotation]:
+def get_annotations(
+    dataset_id: int, image_infos: List[sly.ImageInfo], project_meta: sly.ProjectMeta
+) -> List[sly.Annotation]:
     """Get annotations for the given image info.
-    
+
     :param image_infos: Image infos to get annotations for.
     :type image_infos: List[sly.ImageInfo]
     :return: List of annotations for the given image info.
@@ -142,21 +149,24 @@ def get_annotations(dataset_id: int, image_infos: List[sly.ImageInfo], project_m
     anns_json = api.annotation.download_json_batch(dataset_id, image_ids)
     return [sly.Annotation.from_json(ann_json, project_meta) for ann_json in anns_json]
 
+
 if not dataset_id:
     datasets = api.dataset.get_list(project_id)
 else:
     datasets = [api.dataset.get_info_by_id(dataset_id)]
 
 new_dataset = api.dataset.get_or_create(project_id, "merged")
-    
+
 sly.logger.info(f"Working with {len(datasets)} datasets.")
 for dataset in datasets:
     sly.logger.info(f"Processing dataset {dataset.name}...")
-    for group_name, image_infos in image_groups(dataset.id, tag_id=multispectral_tag_meta.sly_id):
+    for group_name, image_infos in image_groups(
+        dataset.id, tag_id=multispectral_tag_meta.sly_id
+    ):
         sly.logger.info(
             f"Processing group {group_name} with {len(image_infos)} images."
         )
-        
+
         try:
             channel_image_infos = image_infos_by_channels(image_infos)
             sly.logger.info(f"Found {len(channel_image_infos)} channel images.")
@@ -164,15 +174,19 @@ for dataset in datasets:
             sly.logger.error(f"Error processing group {group_name}: {e}")
             continue
 
-        ann = merge_annotations(get_annotations(dataset.id, channel_image_infos, project_meta))
+        ann = merge_annotations(
+            get_annotations(dataset.id, channel_image_infos, project_meta)
+        )
         sly.logger.info(f"Merged annotations with {len(ann.labels)} labels.")
-        image_nps = api.image.download_nps(dataset.id, [image_info.id for image_info in channel_image_infos])
-        
+        image_nps = api.image.download_nps(
+            dataset.id, [image_info.id for image_info in channel_image_infos]
+        )
+
         # ! DEBUG! Remove this section, because in test data all images were 3-channeled.
         single_channeled = []
         for old in image_nps:
             print(f"Shape: {old.shape}")
-            # ! DEBUG! 
+            # ! DEBUG!
             # Take only first channel from the image
             single_channel = old[:, :, 0]
             single_channeled.append(single_channel)
@@ -181,7 +195,9 @@ for dataset in datasets:
         sly.logger.info(f"Downloaded {len(image_nps)} images.")
         image_np = merge_numpys(image_nps)
         sly.logger.info(f"Merged images with shape {image_np.shape}.")
-        
+
         image_info = api.image.upload_np(new_dataset.id, f"{group_name}.png", image_np)
         api.annotation.upload_ann(image_info.id, ann)
-        sly.logger.info(f"Uploaded image {image_info.name} with {len(ann.labels)} labels.")
+        sly.logger.info(
+            f"Uploaded image {image_info.name} with {len(ann.labels)} labels."
+        )
