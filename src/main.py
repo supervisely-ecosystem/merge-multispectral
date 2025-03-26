@@ -2,7 +2,6 @@ import os
 from collections import defaultdict
 from typing import Generator, List, Optional, Tuple, Union
 
-import cv2
 import numpy as np
 import supervisely as sly
 from dotenv import load_dotenv
