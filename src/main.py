@@ -19,6 +19,13 @@ dataset_id = sly.env.dataset_id(raise_not_found=False)
 
 channels_input = os.environ.get("modal.state.channelOrder")
 channel_order = list(channels_input.split(","))
+if len(channel_order) < 3:
+    raise RuntimeError(
+        "Incorrect channel order provided, it should be a comma-separated list of channel postfixes"
+        " with at least 3 elements, for example: '_1,_2,_3', where '_1', '_2', '_3' are postfixes "
+        "of the channels image names, that will be considered as R, G, B channels."
+    )
+
 
 sly.logger.debug(f"Channel order: {channel_order}")
 
