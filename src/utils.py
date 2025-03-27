@@ -21,6 +21,10 @@ def process_dataset(
     :type project_meta: sly.ProjectMeta
     """
     sly.logger.info(f"Processing dataset {dataset.name}...")
+    progress = sly.Progress(
+        message=f"Processing {dataset.name}",
+        total_cnt=dataset.images_count,
+    )
 
     for group_name, image_infos in image_groups(
         dataset.id, tag_id=g.multispectral_tag_meta.sly_id
@@ -47,7 +51,7 @@ def process_dataset(
             dst_dataset_id, f"{group_name}.png", image_np
         )
         g.api.annotation.upload_ann(image_info.id, ann)
-
+        progress.iter_done_report()
 
 def image_groups(
     dataset_id: int, tag_id: int
