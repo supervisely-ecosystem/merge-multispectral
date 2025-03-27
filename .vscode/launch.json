@@ -2,12 +2,24 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python script",
+            "name": "Main script",
             "type": "debugpy",
             "request": "launch",
             "program": "src/main.py",
             "console": "integratedTerminal",
-            "justMyCode": true,
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}:${PYTHONPATH}",
+                "LOG_LEVEL": "DEBUG",
+            }
+        },
+        {
+            "name": "Test script",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/test.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
             "env": {
                 "PYTHONPATH": "${workspaceFolder}:${PYTHONPATH}",
                 "LOG_LEVEL": "DEBUG",

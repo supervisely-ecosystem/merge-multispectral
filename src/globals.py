@@ -1,5 +1,7 @@
 import os
+
 import supervisely as sly
+import yaml
 from dotenv import load_dotenv
 from supervisely.project.project_settings import LabelingInterface
 
@@ -23,14 +25,17 @@ else:
 project_meta_json = api.project.get_meta(project_id)
 project_meta = sly.ProjectMeta.from_json(project_meta_json)
 
-channels_input = os.environ.get("modal.state.channelOrder")
-channel_order = list(channels_input.split(","))
+channel_order_yaml = os.environ["modal.state.channelOrder"]  # input yaml string
+channel_order_dict = yaml.safe_load(channel_order_yaml)  # dict
+channel_order = [channel_order_dict[channel] for channel in ["R", "G", "B"]]  # dict to list
+
 if len(channel_order) < 3:
     raise RuntimeError(
-        "Incorrect channel order provided, it should be a comma-separated list of channel postfixes"
-        " with at least 3 elements, for example: '_1,_2,_3', where '_1', '_2', '_3' are postfixes "
-        "of the channels image names, that will be considered as R, G, B channels."
+        "Incorrect channel order provided, it should be a YAML string with R, G, B channels, "
+        "for example: 'R: _0\\nG: _1\\nB: _2'"
     )
+
+sly.logger.debug(f"Channel order: {channel_order}")
 
 multispectral_tag_meta = project_meta.get_tag_meta(LabelingInterface.MULTISPECTRAL)
 if multispectral_tag_meta is None:

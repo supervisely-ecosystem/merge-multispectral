@@ -1,3 +1,4 @@
+import cv2
 from collections import defaultdict
 from typing import Generator, List, Optional, Tuple, Union
 
@@ -36,14 +37,25 @@ def image_groups(
 
 def merge_numpys(numpys: List[np.ndarray]) -> np.ndarray:
     """Merge list of numpy arrays into one numpy array.
-    Order of the channels ins defined by the order of the input list.
+    Order of the channels is defined by the order of the input list.
 
     :param numpys: List of numpy arrays to merge.
     :type numpys: List[np.ndarray]
     :return: Merged numpy array.
     :rtype: np.ndarray
     """
-    return np.stack(numpys, axis=-1)
+    processed_arrays = []
+    for arr in numpys:
+        if len(arr.shape) == 3:
+            arr = arr[:, :, 0]
+        if len(arr.shape) != 2:
+            raise ValueError(f"Expected 2D array after processing, got shape {arr.shape}")
+        processed_arrays.append(arr)
+    
+    result = np.dstack(processed_arrays)
+    if len(result.shape) != 3 or result.shape[2] != 3:
+        raise RuntimeError(f"Expected merged image shape (h,w,3), got {result.shape}")
+    return result
 
 
 def image_infos_by_channels(image_infos: List[sly.ImageInfo], channel_order: List[str]) -> List[sly.ImageInfo]:
@@ -110,4 +122,27 @@ def get_annotations(
     """
     image_ids = [image_info.id for image_info in image_infos]
     anns_json = g.api.annotation.download_json_batch(dataset_id, image_ids)
-    return [sly.Annotation.from_json(ann_json, project_meta) for ann_json in anns_json] 
+    return [sly.Annotation.from_json(ann_json, project_meta) for ann_json in anns_json]
+
+# Test Utils
+def is_single_channel(image: np.ndarray) -> bool:
+    """Check if image is single channel.
+
+    :param image: Image array to check.
+    :type image: np.ndarray
+    :return: True if image is single channel, False otherwise.
+    :rtype: bool
+    """
+    return len(image.shape) == 2 or (len(image.shape) == 3 and image.shape[2] == 1) 
+
+def divide_into_channels(img: np.ndarray) -> List[np.ndarray]:
+    """Divide image into channels.
+
+    :param img: Image array to divide.
+    :type img: np.ndarray
+    :return: List of channels.
+    """
+    channels = []
+    for i in range(img.shape[2]):
+        channels.append(img[:, :, i])
+    return channels
