@@ -1,10 +1,52 @@
-import cv2
 from collections import defaultdict
 from typing import Generator, List, Optional, Tuple, Union
 
+import cv2
 import numpy as np
-import supervisely as sly
+
 import globals as g
+import supervisely as sly
+
+
+def process_dataset(
+    dataset: sly.DatasetInfo, dst_dataset_id: int, project_meta: sly.ProjectMeta
+) -> None:
+    """Process dataset and upload merged images to destination dataset.
+
+    :param dataset: Source dataset info.
+    :type dataset: sly.DatasetInfo
+    :param dst_dataset_id: Destination dataset ID.
+    :type dst_dataset_id: int
+    :param project_meta: Project meta.
+    :type project_meta: sly.ProjectMeta
+    """
+    sly.logger.info(f"Processing dataset {dataset.name}...")
+
+    for group_name, image_infos in image_groups(
+        dataset.id, tag_id=g.multispectral_tag_meta.sly_id
+    ):
+        try:
+            channel_image_infos = image_infos_by_channels(image_infos, g.channel_order)
+        except Exception as e:
+            sly.logger.error(f"Error processing group {group_name}: {e}")
+            continue
+
+        anns = get_annotations(dataset.id, channel_image_infos, project_meta)
+        ann = merge_annotations(anns)
+
+        image_ids = [image_info.id for image_info in channel_image_infos]
+        image_nps = g.api.image.download_nps(dataset.id, image_ids)
+
+        try:
+            image_np = merge_numpys(image_nps)
+        except Exception as e:
+            sly.logger.error(f"Error merging images for group {group_name}: {e}")
+            continue
+
+        image_info = g.api.image.upload_np(
+            dst_dataset_id, f"{group_name}.png", image_np
+        )
+        g.api.annotation.upload_ann(image_info.id, ann)
 
 
 def image_groups(
@@ -41,7 +83,7 @@ def merge_numpys(numpys: List[np.ndarray]) -> np.ndarray:
 
     :param numpys: List of numpy arrays to merge.
     :type numpys: List[np.ndarray]
-    :return: Merged numpy array.
+    :return: Merged numpy array in RGB format.
     :rtype: np.ndarray
     """
     processed_arrays = []
@@ -49,16 +91,22 @@ def merge_numpys(numpys: List[np.ndarray]) -> np.ndarray:
         if len(arr.shape) == 3:
             arr = arr[:, :, 0]
         if len(arr.shape) != 2:
-            raise ValueError(f"Expected 2D array after processing, got shape {arr.shape}")
+            raise ValueError(
+                f"Expected 2D array after processing, got shape {arr.shape}"
+            )
         processed_arrays.append(arr)
-    
+
     result = np.dstack(processed_arrays)
     if len(result.shape) != 3 or result.shape[2] != 3:
         raise RuntimeError(f"Expected merged image shape (h,w,3), got {result.shape}")
+    
+    result = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
     return result
 
 
-def image_infos_by_channels(image_infos: List[sly.ImageInfo], channel_order: List[str]) -> List[sly.ImageInfo]:
+def image_infos_by_channels(
+    image_infos: List[sly.ImageInfo], channel_order: List[str]
+) -> List[sly.ImageInfo]:
     channel_image_infos = {}
     for idx, channel_postfix in enumerate(channel_order):
         image_info = get_needed_image(image_infos, channel_postfix)
@@ -99,8 +147,7 @@ def merge_annotations(anns: List[sly.Annotation]) -> sly.Annotation:
     merged_ann = anns[0]
     for ann in anns[1:]:
         merged_ann = merged_ann.merge(ann)
-    
-    # Remove duplicate image tags
+
     unique_img_tags = []
     seen_tag_names = set()
     for tag in merged_ann.img_tags:
@@ -124,6 +171,78 @@ def get_annotations(
     anns_json = g.api.annotation.download_json_batch(dataset_id, image_ids)
     return [sly.Annotation.from_json(ann_json, project_meta) for ann_json in anns_json]
 
+
+# Upload Utils
+def create_datasets_tree(src_ds_tree: dict, dst_project_id: int) -> dict:
+    """Create datasets tree in destination project.
+
+    :param src_ds_tree: Source datasets tree.
+    :type src_ds_tree: dict
+    :param dst_project_id: Destination project ID.
+    :type dst_project_id: int
+    :return: Mapping of source dataset IDs to destination dataset IDs.
+    :rtype: dict
+    """
+    src_dst_ds_id_map = {}
+
+    def _create_datasets_tree(src_ds_tree, parent_id=None):
+        for src_ds, nested_src_ds_tree in src_ds_tree.items():
+            dst_ds = g.api.dataset.create(
+                project_id=dst_project_id,
+                name=src_ds.name,
+                description=src_ds.description,
+                change_name_if_conflict=True,
+                parent_id=parent_id,
+            )
+            src_dst_ds_id_map[src_ds.id] = dst_ds.id
+            _create_datasets_tree(nested_src_ds_tree, parent_id=dst_ds.id)
+
+    _create_datasets_tree(src_ds_tree)
+    return src_dst_ds_id_map
+
+
+def create_project_structure(
+    workspace_id: int, project_info: sly.ProjectInfo
+) -> Tuple[sly.ProjectInfo, dict]:
+    """Create project structure and return project info and dataset mapping.
+
+    :param workspace_id: Workspace ID.
+    :type workspace_id: int
+    :param project_info: Source project info.
+    :type project_info: sly.ProjectInfo
+    :return: Tuple of (destination project info, dataset ID mapping).
+    :rtype: Tuple[sly.ProjectInfo, dict]
+    """
+    project_name = f"Merged multispectral {project_info.name}"
+
+    if g.dataset_id is None:
+        description = f"Merged multispectral images from {project_info.name} (id: {project_info.id})"
+    else:
+        description = f"Merged multispectral images from {project_info.name} (id: {project_info.id}) and dataset (id: {g.dataset_id})"
+
+    dst_project = g.api.project.create(
+        workspace_id=workspace_id,
+        name=project_name,
+        description=description,
+        change_name_if_conflict=True,
+    )
+
+    g.api.project.update_meta(dst_project.id, g.project_meta_json)
+
+    if g.dataset_id is None:
+        src_ds_tree = g.api.dataset.get_tree(project_info.id)
+        src_dst_ds_id_map = create_datasets_tree(src_ds_tree, dst_project.id)
+    else:
+        src_dataset = g.dataset_infos[0]
+        dst_dataset = g.api.dataset.create(
+            project_id=dst_project.id,
+            name=src_dataset.name,
+            change_name_if_conflict=True,
+        )
+        src_dst_ds_id_map = {src_dataset.id: dst_dataset.id}
+    return src_dst_ds_id_map
+
+
 # Test Utils
 def is_single_channel(image: np.ndarray) -> bool:
     """Check if image is single channel.
@@ -133,7 +252,8 @@ def is_single_channel(image: np.ndarray) -> bool:
     :return: True if image is single channel, False otherwise.
     :rtype: bool
     """
-    return len(image.shape) == 2 or (len(image.shape) == 3 and image.shape[2] == 1) 
+    return len(image.shape) == 2 or (len(image.shape) == 3 and image.shape[2] == 1)
+
 
 def divide_into_channels(img: np.ndarray) -> List[np.ndarray]:
     """Divide image into channels.
