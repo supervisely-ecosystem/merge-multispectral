@@ -26,6 +26,6 @@
     "main_script": "src/main.py",
     "modal_template": "src/modal.html",
     "modal_template_state": {
-        "channelOrder": "_0,_1,_2"
+        "channelOrder": "R: _0\nG: _1\nB: _2"
     }
 }
