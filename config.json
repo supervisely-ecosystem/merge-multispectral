@@ -3,8 +3,8 @@
     "version": "2.0.0",
     "name": "Merge Multispectral Images",
     "description": "Merge multispectral images into one",
-    "poster": "https://github.com/user-attachments/assets/adf46d70-fb78-4089-84bc-be469464b993",
-    "icon": "https://github.com/user-attachments/assets/1c3e4e74-7bad-4f32-acb6-648860562ec2",
+    "poster": "https://github.com/supervisely-ecosystem/merge-multispectral/releases/download/v0.0.1/poster.jpg",
+    "icon": "https://github.com/supervisely-ecosystem/merge-multispectral/releases/download/v0.0.1/icon.jpg",
     "icon_cover": true,
     "categories": [
         "images",

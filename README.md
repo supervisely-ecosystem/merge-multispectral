@@ -1,6 +1,6 @@
 <div align="center" markdown> 
 
-<img src="https://github.com/user-attachments/assets/adf46d70-fb78-4089-84bc-be469464b993"/>
+<img src="https://github.com/supervisely-ecosystem/merge-multispectral/releases/download/v0.0.1/poster.jpg"/>
 
 # Merge Multispectral Images
   
