@@ -1,6 +1,6 @@
 <div align="center" markdown> 
 
-<img src=""/>
+<img src="https://github.com/user-attachments/assets/adf46d70-fb78-4089-84bc-be469464b993"/>
 
 # Merge Multispectral Images
   
@@ -57,10 +57,11 @@ Replace the suffixes (_0, _1, _2) with the actual suffixes used in your image fi
 1. Click "Run" to start the merging process
 2. Monitor the progress in the logs
 3. Wait for the process to complete
+4. New project will appear on workspace tasks page
 
 ### Step 4: Access Results
 
-- A new project will be created with the prefix "Merged multispectral"
+- A new project will be created with the prefix "Merged multispectral" followed by the source project name
 - The new project maintains the same structure as the source project
 - Each merged image will be saved as a PNG file
 - All annotations are preserved and attached to the merged images
