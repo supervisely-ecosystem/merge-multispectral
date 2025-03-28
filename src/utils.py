@@ -25,6 +25,10 @@ def process_dataset(
     all_groups = list(image_groups(dataset.id, tag_id=g.multispectral_tag_meta.sly_id))
     groups_count = len(all_groups)
     
+    if groups_count == 0:
+        sly.logger.info(f"No image groups found in dataset {dataset.name}")
+        return
+
     progress = sly.Progress(
         message=f"Processing {dataset.name}",
         total_cnt=groups_count,
@@ -32,52 +36,55 @@ def process_dataset(
 
     dst_images = get_dataset_images(dst_dataset_id)
     dst_names = {img_name[:-4] for img_name, _ in dst_images}
-
-    res_image_nps, res_names, res_anns = [], [], []
     processed_groups = 0
     skipped_groups = 0
     
-    for group_name, image_infos in all_groups:
-        # Skip if image already exists
-        if group_name in dst_names:
-            sly.logger.info(f"Skipping existing image {group_name}.png")
-            progress.iter_done_report()
-            skipped_groups += 1
-            continue
+    def process_batch(batch_groups):
+        nonlocal processed_groups, skipped_groups
+        res_image_nps, res_names, res_anns = [], [], []
+        for group_name, image_infos in batch_groups:
+            if group_name in dst_names:
+                sly.logger.info(f"Skipping existing image {group_name}.png")
+                progress.iter_done_report()
+                skipped_groups += 1
+                continue
 
-        try:
-            channel_image_infos = image_infos_by_channels(image_infos, g.channel_order)
-        except Exception as e:
-            sly.logger.error(f"Error processing group {group_name}: {e}")
-            progress.iter_done_report()
-            skipped_groups += 1
-            continue
+            try:
+                channel_image_infos = image_infos_by_channels(image_infos, g.channel_order)
+            except Exception as e:
+                sly.logger.error(f"Error processing group {group_name}: {e}")
+                progress.iter_done_report()
+                skipped_groups += 1
+                continue
 
-        anns = get_annotations(dataset.id, channel_image_infos, project_meta)
-        ann = merge_annotations(anns)
+            anns = get_annotations(dataset.id, channel_image_infos, project_meta)
+            ann = merge_annotations(anns)
 
-        image_ids = [image_info.id for image_info in channel_image_infos]
-        image_nps = g.api.image.download_nps(dataset.id, image_ids)
+            image_ids = [image_info.id for image_info in channel_image_infos]
+            image_nps = g.api.image.download_nps(dataset.id, image_ids)
 
-        try:
-            image_np = merge_numpys(image_nps)
-        except Exception as e:
-            sly.logger.error(f"Error merging images for group {group_name}: {e}")
-            progress.iter_done_report()
-            skipped_groups += 1
-            continue
-            
-        res_image_nps.append(image_np)
-        res_names.append(f"{group_name}.png")
-        res_anns.append(ann)
-
-    if res_image_nps:
-        processed_groups = len(res_image_nps)
-        sly.logger.info(f"Uploading {processed_groups} merged images to server...")
-        res_image_infos = g.api.image.upload_nps(dst_dataset_id, res_names, res_image_nps)
-        res_image_ids = [image_info.id for image_info in res_image_infos]
-        g.api.annotation.upload_anns(res_image_ids, res_anns)
-        progress.iters_done_report(processed_groups)
+            try:
+                image_np = merge_numpys(image_nps)
+            except Exception as e:
+                sly.logger.error(f"Error merging images for group {group_name}: {e}")
+                progress.iter_done_report()
+                skipped_groups += 1
+                continue
+                
+            res_image_nps.append(image_np)
+            res_names.append(f"{group_name}.png")
+            res_anns.append(ann)
+        
+        if res_image_nps:
+            batch_processed = len(res_image_nps)
+            processed_groups += batch_processed
+            res_image_infos = g.api.image.upload_nps(dst_dataset_id, res_names, res_image_nps)
+            res_image_ids = [image_info.id for image_info in res_image_infos]
+            g.api.annotation.upload_anns(res_image_ids, res_anns)
+            progress.iters_done_report(batch_processed)
+    
+    for batch_groups in sly.batched(all_groups):
+        process_batch(batch_groups)
     
     total_processed = processed_groups + skipped_groups
     sly.logger.info(f"Processed {total_processed} of {groups_count} image groups in dataset {dataset.name}")
@@ -226,7 +233,7 @@ def create_datasets_tree(src_ds_tree: dict, dst_project_id: int) -> dict:
                 dst_ds = dst_ds_existing
             else:
                 sly.logger.info(f"Creating new dataset: {path}")
-                dst_ds = g.api.dataset.create(
+                dst_ds = g.api.dataset.get_or_create(
                     project_id=dst_project_id,
                     name=src_ds.name,
                     description=src_ds.description,
@@ -454,7 +461,6 @@ def divide_into_channels(img: np.ndarray, ensure_rgb_order: bool = True) -> List
     if len(img.shape) != 3 or img.shape[2] != 3:
         raise ValueError(f"Expected image with shape (h,w,3), got {img.shape}")
     if ensure_rgb_order:
-        sly.logger.debug("Converting channels to ensure RGB order")
         rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) if img.dtype == np.uint8 else img
         return [rgb_img[:, :, 0], rgb_img[:, :, 1], rgb_img[:, :, 2]]
     else:
