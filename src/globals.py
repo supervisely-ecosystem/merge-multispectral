@@ -12,6 +12,7 @@ if sly.is_development():
 
 api = sly.Api.from_env()
 
+task_id = sly.env.task_id()
 team_id = sly.env.team_id()
 workspace_id = sly.env.workspace_id()
 project_id = sly.env.project_id(raise_not_found=False)
@@ -47,3 +48,5 @@ if multispectral_tag_meta is None:
         "Multispectral tag not found in project meta, this app can work only with Multispectral "
         f"projects. Ensure that {LabelingInterface.MULTISPECTRAL} tag is present in project meta."
     )
+
+datasets_with_new_images = []
