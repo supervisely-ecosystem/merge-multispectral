@@ -47,3 +47,5 @@ if multispectral_tag_meta is None:
         "Multispectral tag not found in project meta, this app can work only with Multispectral "
         f"projects. Ensure that {LabelingInterface.MULTISPECTRAL} tag is present in project meta."
     )
+
+datasets_with_new_images = []

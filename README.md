@@ -8,6 +8,7 @@
   <a href="#overview">Overview</a> •
   <a href="#features">Features</a> •
   <a href="#how-to-use">How to Use</a> •
+  <a href="#project-synchronization">Project Synchronization</a> •
   <a href="#examples">Examples</a>
 </p>
 
@@ -33,6 +34,7 @@ This application helps you merge multiple channels of multispectral images into 
 - **Channel Order Control**: Define the order of channels in the output RGB image
 - **Annotation Preservation**: All labels and annotations are preserved in the merged image
 - **Project Structure**: Maintains the original dataset hierarchy
+- **Project Synchronization**: Automatically synchronizes with existing projects based on source project name
 
 ## How to Use
 
@@ -65,6 +67,18 @@ Replace the suffixes (_0, _1, _2) with the actual suffixes used in your image fi
 - The new project maintains the same structure as the source project
 - Each merged image will be saved as a PNG file
 - All annotations are preserved and attached to the merged images
+
+## Project Synchronization
+
+The application features project synchronization based on the source project name:
+
+- When you run the app, it searches for existing projects with the name pattern "Merged multispectral {original_project_name}"
+- If a matching project exists, the app will:
+  - Use the existing project structure
+  - Identify datasets with new images to process
+  - Only process new images that don't already exist in the destination project
+  - Skip images that have already been processed
+- If no matching project exists, a new project will be created with the proper name and structure
 
 ## Examples
 

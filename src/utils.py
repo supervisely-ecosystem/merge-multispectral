@@ -12,6 +12,7 @@ def process_dataset(
     dataset: sly.DatasetInfo, dst_dataset_id: int, project_meta: sly.ProjectMeta
 ) -> None:
     """Process dataset and upload merged images to destination dataset.
+    Only uploads new images that don't exist in destination dataset.
 
     :param dataset: Source dataset info.
     :type dataset: sly.DatasetInfo
@@ -21,18 +22,35 @@ def process_dataset(
     :type project_meta: sly.ProjectMeta
     """
     sly.logger.info(f"Processing dataset {dataset.name}...")
+    all_groups = list(image_groups(dataset.id, tag_id=g.multispectral_tag_meta.sly_id))
+    groups_count = len(all_groups)
+    
     progress = sly.Progress(
         message=f"Processing {dataset.name}",
-        total_cnt=dataset.images_count,
+        total_cnt=groups_count,
     )
 
-    for group_name, image_infos in image_groups(
-        dataset.id, tag_id=g.multispectral_tag_meta.sly_id
-    ):
+    dst_images = get_dataset_images(dst_dataset_id)
+    dst_names = {img_name[:-4] for img_name, _ in dst_images}
+
+    res_image_nps, res_names, res_anns = [], [], []
+    processed_groups = 0
+    skipped_groups = 0
+    
+    for group_name, image_infos in all_groups:
+        # Skip if image already exists
+        if group_name in dst_names:
+            sly.logger.info(f"Skipping existing image {group_name}.png")
+            progress.iter_done_report()
+            skipped_groups += 1
+            continue
+
         try:
             channel_image_infos = image_infos_by_channels(image_infos, g.channel_order)
         except Exception as e:
             sly.logger.error(f"Error processing group {group_name}: {e}")
+            progress.iter_done_report()
+            skipped_groups += 1
             continue
 
         anns = get_annotations(dataset.id, channel_image_infos, project_meta)
@@ -45,13 +63,26 @@ def process_dataset(
             image_np = merge_numpys(image_nps)
         except Exception as e:
             sly.logger.error(f"Error merging images for group {group_name}: {e}")
+            progress.iter_done_report()
+            skipped_groups += 1
             continue
+            
+        res_image_nps.append(image_np)
+        res_names.append(f"{group_name}.png")
+        res_anns.append(ann)
 
-        image_info = g.api.image.upload_np(
-            dst_dataset_id, f"{group_name}.png", image_np
-        )
-        g.api.annotation.upload_ann(image_info.id, ann)
-        progress.iter_done_report()
+    if res_image_nps:
+        processed_groups = len(res_image_nps)
+        sly.logger.info(f"Uploading {processed_groups} merged images to server...")
+        res_image_infos = g.api.image.upload_nps(dst_dataset_id, res_names, res_image_nps)
+        res_image_ids = [image_info.id for image_info in res_image_infos]
+        g.api.annotation.upload_anns(res_image_ids, res_anns)
+        progress.iters_done_report(processed_groups)
+    
+    total_processed = processed_groups + skipped_groups
+    sly.logger.info(f"Processed {total_processed} of {groups_count} image groups in dataset {dataset.name}")
+    sly.logger.info(f"  - Uploaded {processed_groups} new merged images")
+    sly.logger.info(f"  - Skipped {skipped_groups} existing images")
 
 def image_groups(
     dataset_id: int, tag_id: int
@@ -95,15 +126,11 @@ def merge_numpys(numpys: List[np.ndarray]) -> np.ndarray:
         if len(arr.shape) == 3:
             arr = arr[:, :, 0]
         if len(arr.shape) != 2:
-            raise ValueError(
-                f"Expected 2D array after processing, got shape {arr.shape}"
-            )
+            raise ValueError(f"Expected 2D array after processing, got shape {arr.shape}")
         processed_arrays.append(arr)
-
     result = np.dstack(processed_arrays)
     if len(result.shape) != 3 or result.shape[2] != 3:
         raise RuntimeError(f"Expected merged image shape (h,w,3), got {result.shape}")
-    
     result = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
     return result
 
@@ -191,13 +218,21 @@ def create_datasets_tree(src_ds_tree: dict, dst_project_id: int) -> dict:
 
     def _create_datasets_tree(src_ds_tree, parent_id=None):
         for src_ds, nested_src_ds_tree in src_ds_tree.items():
-            dst_ds = g.api.dataset.create(
-                project_id=dst_project_id,
-                name=src_ds.name,
-                description=src_ds.description,
-                change_name_if_conflict=True,
-                parent_id=parent_id,
-            )
+            # Get full path to dataset
+            path = get_dataset_path(src_ds.id, src_ds.project_id)
+            dst_ds_existing = g.api.dataset.get_info_by_name(dst_project_id, src_ds.name, parent_id)
+            if dst_ds_existing:
+                sly.logger.info(f"Using existing dataset: {path}")
+                dst_ds = dst_ds_existing
+            else:
+                sly.logger.info(f"Creating new dataset: {path}")
+                dst_ds = g.api.dataset.create(
+                    project_id=dst_project_id,
+                    name=src_ds.name,
+                    description=src_ds.description,
+                    parent_id=parent_id,
+                )
+            
             src_dst_ds_id_map[src_ds.id] = dst_ds.id
             _create_datasets_tree(nested_src_ds_tree, parent_id=dst_ds.id)
 
@@ -246,6 +281,153 @@ def create_project_structure(
         src_dst_ds_id_map = {src_dataset.id: dst_dataset.id}
     return src_dst_ds_id_map
 
+def get_project_by_name(workspace_id: int, project_name: str) -> Optional[sly.ProjectInfo]:
+    """Get project by name in workspace.
+
+    :param workspace_id: Workspace ID.
+    :type workspace_id: int
+    :param project_name: Project name to search for.
+    :type project_name: str
+    :return: Project info if found, None otherwise.
+    :rtype: Optional[sly.ProjectInfo]
+    """
+    project = g.api.project.get_info_by_name(workspace_id, project_name)
+    return project
+
+
+def get_dataset_images(dataset_id: int) -> List[Tuple[str, sly.ImageInfo]]:
+    """Get all images in dataset with their names.
+
+    :param dataset_id: Dataset ID.
+    :type dataset_id: int
+    :return: List of tuples (image_name, image_info).
+    :rtype: List[Tuple[str, sly.ImageInfo]]
+    """
+    images = g.api.image.get_list(dataset_id)
+    return [(img.name, img) for img in images]
+
+
+def get_dataset_path(dataset_id: int, project_id: int) -> str:
+    """Get full path to dataset in project hierarchy.
+
+    :param dataset_id: Dataset ID.
+    :type dataset_id: int
+    :param project_id: Project ID.
+    :type project_id: int
+    :return: Full path to dataset.
+    :rtype: str
+    """
+    path = []
+    current_id = dataset_id
+    
+    while current_id is not None:
+        dataset = g.api.dataset.get_info_by_id(current_id)
+        path.append(dataset.name)
+        current_id = dataset.parent_id
+    
+    return "/".join(reversed(path))
+
+
+def get_merged_image_name(group_name: str) -> str:
+    """Get merged image name from group name.
+
+    :param group_name: Group name (base name without channel suffixes).
+    :type group_name: str
+    :return: Merged image name.
+    :rtype: str
+    """
+    return f"{group_name}.png"
+
+
+def get_channel_image_names(group_name: str, channel_order: List[str]) -> List[str]:
+    """Get channel image names from group name and channel order.
+
+    :param group_name: Group name (base name without channel suffixes).
+    :type group_name: str
+    :param channel_order: List of channel suffixes.
+    :type channel_order: List[str]
+    :return: List of channel image names.
+    :rtype: List[str]
+    """
+    return [f"{group_name}{suffix}.png" for suffix in channel_order]
+
+
+def has_new_images(dataset_id: int, dst_dataset_id: int) -> bool:
+    """Check if dataset has new images to process.
+
+    :param dataset_id: Source dataset ID.
+    :type dataset_id: int
+    :param dst_dataset_id: Destination dataset ID.
+    :type dst_dataset_id: int
+    :return: True if dataset has new images to process, False otherwise.
+    :rtype: bool
+    """
+    src_path = get_dataset_path(dataset_id, g.project_info.id)
+    src_images = get_dataset_images(dataset_id)
+    dst_images = get_dataset_images(dst_dataset_id)
+    src_groups = set()
+    for img_name, _ in src_images:
+        for suffix in g.channel_order:
+            if img_name.endswith(suffix + ".png"):
+                base_name = img_name[:-len(suffix + ".png")]
+                src_groups.add(base_name)
+                break
+    
+    dst_names = {img_name[:-4] for img_name, _ in dst_images}
+    groups_to_upload = src_groups - dst_names
+    if not groups_to_upload:
+        sly.logger.info(f"No new images to upload in dataset {src_path}")
+        return False
+        
+    sly.logger.info(f"Found {len(groups_to_upload)} new image groups in dataset {src_path}")
+    return True
+
+
+def create_or_sync_project(
+    workspace_id: int,
+    project_info: sly.ProjectInfo
+) -> dict:
+    """Create new project or sync with existing one.
+
+    :param workspace_id: Workspace ID.
+    :type workspace_id: int
+    :param project_info: Source project info.
+    :type project_info: sly.ProjectInfo
+    :return: Mapping of source dataset IDs to destination dataset IDs.
+    :rtype: dict
+    """
+    project_name = f"Merged multispectral {project_info.name}"
+    dst_project = get_project_by_name(workspace_id, project_name)
+    
+    if dst_project is None:
+        sly.logger.info(f"Creating new project: {project_name}")
+        src_dst_ds_id_map = create_project_structure(workspace_id, project_info)
+        g.datasets_with_new_images = g.dataset_infos.copy()
+        return src_dst_ds_id_map
+    else:
+        sly.logger.info(f"Found existing project: {project_name}")
+        if g.dataset_id is None:
+            src_ds_tree = g.api.dataset.get_tree(project_info.id)
+            src_dst_ds_id_map = create_datasets_tree(src_ds_tree, dst_project.id)
+        else:
+            src_dataset = g.dataset_infos[0]
+            dst_dataset = g.api.dataset.create(
+                project_id=dst_project.id,
+                name=src_dataset.name,
+                change_name_if_conflict=True,
+            )
+            src_dst_ds_id_map = {src_dataset.id: dst_dataset.id}
+        for dataset in g.dataset_infos:
+            dst_dataset_id = src_dst_ds_id_map[dataset.id]
+            if has_new_images(dataset.id, dst_dataset_id):
+                g.datasets_with_new_images.append(dataset)
+        
+        if not g.datasets_with_new_images:
+            sly.logger.info("No new images to process in any dataset")
+        else:
+            sly.logger.info(f"Found {len(g.datasets_with_new_images)} datasets with new images")
+            
+        return src_dst_ds_id_map
 
 # Test Utils
 def is_single_channel(image: np.ndarray) -> bool:
@@ -259,14 +441,24 @@ def is_single_channel(image: np.ndarray) -> bool:
     return len(image.shape) == 2 or (len(image.shape) == 3 and image.shape[2] == 1)
 
 
-def divide_into_channels(img: np.ndarray) -> List[np.ndarray]:
+def divide_into_channels(img: np.ndarray, ensure_rgb_order: bool = True) -> List[np.ndarray]:
     """Divide image into channels.
 
     :param img: Image array to divide.
     :type img: np.ndarray
-    :return: List of channels.
+    :param ensure_rgb_order: If True, ensures channels are returned in RGB order. Default is True.
+    :type ensure_rgb_order: bool
+    :return: List of channels in order [R,G,B] if ensure_rgb_order is True, otherwise in order they appear in image.
+    :rtype: List[np.ndarray]
     """
-    channels = []
-    for i in range(img.shape[2]):
-        channels.append(img[:, :, i])
-    return channels
+    if len(img.shape) != 3 or img.shape[2] != 3:
+        raise ValueError(f"Expected image with shape (h,w,3), got {img.shape}")
+    if ensure_rgb_order:
+        sly.logger.debug("Converting channels to ensure RGB order")
+        rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) if img.dtype == np.uint8 else img
+        return [rgb_img[:, :, 0], rgb_img[:, :, 1], rgb_img[:, :, 2]]
+    else:
+        channels = []
+        for i in range(img.shape[2]):
+            channels.append(img[:, :, i])
+        return channels
