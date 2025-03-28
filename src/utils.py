@@ -434,7 +434,7 @@ def create_or_sync_project(
         else:
             sly.logger.info(f"Found {len(g.datasets_with_new_images)} datasets with new images")
             
-        return src_dst_ds_id_map
+        return dst_project, src_dst_ds_id_map
 
 # Test Utils
 def is_single_channel(image: np.ndarray) -> bool:
