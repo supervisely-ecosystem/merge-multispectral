@@ -393,15 +393,15 @@ def has_new_images(dataset_id: int, dst_dataset_id: int) -> bool:
 def create_or_sync_project(
     workspace_id: int,
     project_info: sly.ProjectInfo
-) -> dict:
+) -> Tuple[sly.ProjectInfo, dict]:
     """Create new project or sync with existing one.
 
     :param workspace_id: Workspace ID.
     :type workspace_id: int
     :param project_info: Source project info.
     :type project_info: sly.ProjectInfo
-    :return: Mapping of source dataset IDs to destination dataset IDs.
-    :rtype: dict
+    :return: Tuple of (destination project info, dataset ID mapping).
+    :rtype: Tuple[sly.ProjectInfo, dict]
     """
     project_name = f"Merged multispectral {project_info.name}"
     dst_project = get_project_by_name(workspace_id, project_name)
