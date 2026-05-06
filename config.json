@@ -23,7 +23,7 @@
     "license": {
         "type": "Apache-2.0"
     },
-    "instance_version": "6.12.34",
+    "instance_version": "6.15.60",
     "main_script": "src/main.py",
     "modal_template": "src/modal.html",
     "modal_template_state": {
