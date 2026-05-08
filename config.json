@@ -1,32 +1,32 @@
 {
-    "type": "app",
-    "version": "2.0.0",
-    "name": "Merge Multispectral Images",
-    "description": "Merge multispectral images into one",
-    "poster": "https://github.com/supervisely-ecosystem/merge-multispectral/releases/download/v0.0.1/poster.jpg",
-    "icon": "https://github.com/supervisely-ecosystem/merge-multispectral/releases/download/v0.0.1/icon.jpg",
-    "icon_cover": true,
-    "categories": [
-        "images",
-        "annotation transformation",
-        "data operations"
-    ],
-    "headless": true,
-    "task_location": "workspace_tasks",
-    "docker_image": "supervisely/base-py-sdk:6.73.337",
-    "context_menu": {
-        "target": [
-            "images_project",
-            "images_dataset"
-        ]
-    },
-    "license": {
-        "type": "Apache-2.0"
-    },
-    "instance_version": "6.12.34",
-    "main_script": "src/main.py",
-    "modal_template": "src/modal.html",
-    "modal_template_state": {
-        "channelOrder": "R: _0\nG: _1\nB: _2"
-    }
+  "type": "app",
+  "version": "2.0.0",
+  "name": "Merge Multispectral Images",
+  "description": "Merge multispectral images into one",
+  "poster": "https://github.com/supervisely-ecosystem/merge-multispectral/releases/download/v0.0.1/poster.jpg",
+  "icon": "https://github.com/supervisely-ecosystem/merge-multispectral/releases/download/v0.0.1/icon.jpg",
+  "icon_cover": true,
+  "categories": [
+    "images",
+    "annotation transformation",
+    "data operations"
+  ],
+  "headless": true,
+  "task_location": "workspace_tasks",
+  "docker_image": "supervisely/base-py-sdk-hardened:6.73.564",
+  "context_menu": {
+    "target": [
+      "images_project",
+      "images_dataset"
+    ]
+  },
+  "license": {
+    "type": "Apache-2.0"
+  },
+  "instance_version": "6.15.60",
+  "main_script": "src/main.py",
+  "modal_template": "src/modal.html",
+  "modal_template_state": {
+    "channelOrder": "R: _0\nG: _1\nB: _2"
+  }
 }
